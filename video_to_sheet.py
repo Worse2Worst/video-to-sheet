@@ -162,6 +162,24 @@ def clean_crop(crop):
     return out
 
 
+def trim_blank(crop, pad_ratio=0.015):
+    """Cut blank space above/below the content, keeping the full width.
+    Width stays fixed so every page is scaled by the same factor in the PDF
+    (staff size stays consistent) while the height follows the content."""
+    gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+    h, w = gray.shape
+    rows = np.where((gray < 160).sum(axis=1) >= max(3, int(w * 0.003)))[0]
+    if rows.size == 0:
+        return crop
+    pad = max(6, int(w * pad_ratio))
+    return crop[max(0, rows[0] - pad) : min(h, rows[-1] + 1 + pad)]
+
+
+def finish_crop(crop, clean, trim):
+    out = clean_crop(crop) if clean else crop.copy()
+    return trim_blank(out) if trim else out
+
+
 def ink_signature(crop):
     hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
     ink = ((hsv[..., 2] < 110) & (hsv[..., 1] < 80)).astype(np.uint8) * 255
@@ -188,7 +206,7 @@ def diff_ratio(a, b):
     return (a_only + b_only) / total if total else 0.0
 
 
-def extract_pages(path, roi, interval, change, stable, clean, on_progress=None):
+def extract_pages(path, roi, interval, change, stable, clean, trim=True, on_progress=None):
     """Returns a list of {"img": BGR crop, "t": seconds}."""
     x, y, w, h = roi
     duration = video_info(path)["duration"] or 1
@@ -206,7 +224,7 @@ def extract_pages(path, roi, interval, change, stable, clean, on_progress=None):
         is_stable = prev_sig is not None and diff_ratio(sig, prev_sig) < stable
         changed = last_sig is None or diff_ratio(sig, last_sig) > change
         if is_stable and changed:
-            kept.append({"img": clean_crop(crop) if clean else crop.copy(), "t": t})
+            kept.append({"img": finish_crop(crop, clean, trim), "t": t})
             last_sig = sig
         prev_sig = sig
     return kept
@@ -363,7 +381,7 @@ def on_redetect(path, t):
     return x, y, w, h, draw_roi_preview(path, t, x, y, w, h)
 
 
-def on_extract(path, x, y, w, h, interval, change, stable, clean, progress=gr.Progress()):
+def on_extract(path, x, y, w, h, interval, change, stable, clean, trim, progress=gr.Progress()):
     if not path:
         raise gr.Error("Load a video first.")
     roi = (int(x), int(y), int(w), int(h))
@@ -371,7 +389,7 @@ def on_extract(path, x, y, w, h, interval, change, stable, clean, progress=gr.Pr
     def cb(frac, n):
         progress(frac, desc=f"Scanning video... {n} pages found")
 
-    pages = extract_pages(path, roi, interval, change, stable, clean, cb)
+    pages = extract_pages(path, roi, interval, change, stable, clean, trim, cb)
     if not pages:
         gr.Warning(
             "No pages found. Check the red box, lower 'New-page sensitivity', "
@@ -406,7 +424,7 @@ def on_move(pages, sel, direction):
     return pages, render_gallery(pages, j), j
 
 
-def on_add_frame(pages, path, t, x, y, w, h, clean):
+def on_add_frame(pages, path, t, x, y, w, h, clean, trim):
     if not path:
         raise gr.Error("Load a video first.")
     frame = grab_frame(path, t)
@@ -416,7 +434,7 @@ def on_add_frame(pages, path, t, x, y, w, h, clean):
     crop = frame[y : y + h, x : x + w]
     if crop.size == 0:
         raise gr.Error("The red box is outside the video frame.")
-    new = {"img": clean_crop(crop) if clean else crop.copy(), "t": float(t)}
+    new = {"img": finish_crop(crop, clean, trim), "t": float(t)}
     pos = sum(1 for p in pages if p["t"] <= t)  # keep time order
     pages = list(pages[:pos]) + [new] + list(pages[pos:])
     gr.Info(f"Added as page #{pos + 1}.")
@@ -502,6 +520,11 @@ with gr.Blocks(title="Sheet Music Extractor", theme=gr.themes.Soft()) as demo:
                 label="Stability tolerance (higher = accepts frames mid-transition)",
             )
             clean = gr.Checkbox(value=True, label="Remove colored cursor / highlights")
+            trim = gr.Checkbox(
+                value=True,
+                label="Auto-trim blank space above/below each page",
+                info="Lets you draw a generous box that covers the title slide; pages without a title are trimmed to their content.",
+            )
         extract_btn = gr.Button("Extract pages", variant="primary")
 
     # ---- 4. Review ----
@@ -551,7 +574,7 @@ with gr.Blocks(title="Sheet Music Extractor", theme=gr.themes.Soft()) as demo:
 
     extract_btn.click(
         on_extract,
-        [video_path, sx, sy, sw, sh, interval, change, stable, clean],
+        [video_path, sx, sy, sw, sh, interval, change, stable, clean, trim],
         [pages_state, gallery, pdf_out],
     )
 
@@ -561,7 +584,7 @@ with gr.Blocks(title="Sheet Music Extractor", theme=gr.themes.Soft()) as demo:
     down_btn.click(lambda p, s: on_move(p, s, 1), [pages_state, selected], [pages_state, gallery, selected])
     add_btn.click(
         on_add_frame,
-        [pages_state, video_path, t_slider, sx, sy, sw, sh, clean],
+        [pages_state, video_path, t_slider, sx, sy, sw, sh, clean, trim],
         [pages_state, gallery, selected],
     )
 

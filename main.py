@@ -211,7 +211,9 @@ def diff_ratio(a, b):
     return (a_only + b_only) / total if total else 0.0
 
 
-def extract_pages(path, roi, interval, change, stable, clean, trim=True, on_progress=None):
+def extract_pages(
+    path, roi, interval, change, stable, clean, trim=True, on_progress=None
+):
     """Returns a list of {"img": BGR crop, "t": seconds}."""
     x, y, w, h = roi
     duration = video_info(path)["duration"] or 1
@@ -248,7 +250,9 @@ def build_pdf(crops, out_path, dpi=150, margin_mm=10, gap_mm=6):
         img = img.resize((usable_w, max(1, int(img.height * scale))), Image.LANCZOS)
         if img.height > page_h - 2 * margin:
             s = (page_h - 2 * margin) / img.height
-            img = img.resize((max(1, int(img.width * s)), page_h - 2 * margin), Image.LANCZOS)
+            img = img.resize(
+                (max(1, int(img.width * s)), page_h - 2 * margin), Image.LANCZOS
+            )
         if page is None or cursor + img.height > page_h - margin:
             page = Image.new("RGB", (page_w, page_h), "white")
             pages.append(page)
@@ -272,18 +276,25 @@ def download_youtube(url, progress):
         cookies_path = "cookies.txt"
 
     cmd = [
-        sys.executable, "-m", "yt_dlp",
-        "-f", "bv*[height<=1080]+ba/b",
-        "--merge-output-format", "mp4",
+        sys.executable,
+        "-m",
+        "yt_dlp",
+        "-f",
+        "bv*[height<=1080]+ba/b",
+        "--merge-output-format",
+        "mp4",
         "--no-playlist",
         "--no-warnings",
     ]
     if cookies_path and os.path.isfile(cookies_path):
         cmd.extend(["--cookies", cookies_path])
-    cmd.extend([
-        "-o", os.path.join(out_dir, "%(id)s.%(ext)s"),
-        url,
-    ])
+    cmd.extend(
+        [
+            "-o",
+            os.path.join(out_dir, "%(id)s.%(ext)s"),
+            url,
+        ]
+    )
 
     try:
         res = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
@@ -303,7 +314,8 @@ def download_youtube(url, progress):
     files = [
         os.path.join(out_dir, f)
         for f in os.listdir(out_dir)
-        if not f.endswith((".part", ".ytdl", ".temp")) and f.lower().endswith(video_exts)
+        if not f.endswith((".part", ".ytdl", ".temp"))
+        and f.lower().endswith(video_exts)
     ]
     if not files:
         raise gr.Error("Download finished but no file was found.")
@@ -343,6 +355,8 @@ def on_load(upload, source, progress=gr.Progress()):
     if source:
         if source.lower().startswith(("http://", "https://")):
             path = download_youtube(source, progress)
+        elif IS_HOSTED:
+            raise gr.Error("Local file paths are disabled on the hosted app. Paste a URL or upload a video.")
         elif os.path.isfile(source):
             path = source
         else:
@@ -406,7 +420,9 @@ def on_redetect(path, t):
     return x, y, w, h, draw_roi_preview(path, t, x, y, w, h)
 
 
-def on_extract(path, x, y, w, h, interval, change, stable, clean, trim, progress=gr.Progress()):
+def on_extract(
+    path, x, y, w, h, interval, change, stable, clean, trim, progress=gr.Progress()
+):
     if not path:
         raise gr.Error("Load a video first.")
     roi = (int(x), int(y), int(w), int(h))
@@ -479,7 +495,9 @@ def safe_filename(name):
 def on_export(pages, dpi, gap, filename):
     if not pages:
         raise gr.Error("There are no pages to export.")
-    out = os.path.join(tempfile.mkdtemp(prefix="sheet_pdf_"), safe_filename(filename) + ".pdf")
+    out = os.path.join(
+        tempfile.mkdtemp(prefix="sheet_pdf_"), safe_filename(filename) + ".pdf"
+    )
     build_pdf([p["img"] for p in pages], out, dpi=int(dpi), gap_mm=gap)
     return out
 
@@ -509,9 +527,13 @@ with gr.Blocks(title="Sheet Music Extractor", theme=gr.themes.Soft()) as demo:
                 type="filepath",
             )
             source = gr.Textbox(
-                label="...or paste a YouTube URL / local file path",
-                placeholder="https://www.youtube.com/watch?v=...   or   C:\\videos\\song.mp4",
-                visible=not IS_HOSTED,
+                label="...or paste a YouTube URL"
+                if IS_HOSTED
+                else "...or paste a YouTube URL / local file path",
+                placeholder="https://www.youtube.com/watch?v=..."
+                if IS_HOSTED
+                else "https://www.youtube.com/watch?v=...   or   C:\\videos\\song.mp4",
+                visible=True,
             )
         if IS_HOSTED:
             gr.Markdown(
@@ -542,13 +564,21 @@ with gr.Blocks(title="Sheet Music Extractor", theme=gr.themes.Soft()) as demo:
     with gr.Group():
         gr.Markdown("### 3. Extract pages")
         with gr.Accordion("Advanced settings", open=False):
-            interval = gr.Slider(0.1, 3, value=0.5, step=0.1, label="Seconds between sampled frames")
+            interval = gr.Slider(
+                0.1, 3, value=0.5, step=0.1, label="Seconds between sampled frames"
+            )
             change = gr.Slider(
-                0.05, 0.9, value=0.35, step=0.05,
+                0.05,
+                0.9,
+                value=0.35,
+                step=0.05,
                 label="New-page sensitivity (lower = keeps more pages)",
             )
             stable = gr.Slider(
-                0.02, 0.5, value=0.15, step=0.01,
+                0.02,
+                0.5,
+                value=0.15,
+                step=0.01,
                 label="Stability tolerance (higher = accepts frames mid-transition)",
             )
             clean = gr.Checkbox(value=True, label="Remove colored cursor / highlights")
@@ -567,8 +597,11 @@ with gr.Blocks(title="Sheet Music Extractor", theme=gr.themes.Soft()) as demo:
             "preview time above to a moment where it is fully visible and click **Add frame**."
         )
         gallery = gr.Gallery(
-            label="Detected pages", columns=2, height="auto",
-            object_fit="contain", allow_preview=True,
+            label="Detected pages",
+            columns=2,
+            height="auto",
+            object_fit="contain",
+            allow_preview=True,
         )
         with gr.Row():
             del_btn = gr.Button("Delete selected")
@@ -594,8 +627,18 @@ with gr.Blocks(title="Sheet Music Extractor", theme=gr.themes.Soft()) as demo:
     roi_inputs = [video_path, t_slider, sx, sy, sw, sh]
 
     load_outputs = [
-        video_path, status, sx, sy, sw, sh, t_slider, preview,
-        pages_state, gallery, selected, filename,
+        video_path,
+        status,
+        sx,
+        sy,
+        sw,
+        sh,
+        t_slider,
+        preview,
+        pages_state,
+        gallery,
+        selected,
+        filename,
     ]
     load_btn.click(on_load, [upload, source], load_outputs)
 
@@ -612,8 +655,16 @@ with gr.Blocks(title="Sheet Music Extractor", theme=gr.themes.Soft()) as demo:
 
     gallery.select(on_select, None, selected)
     del_btn.click(on_delete, [pages_state, selected], [pages_state, gallery, selected])
-    up_btn.click(lambda p, s: on_move(p, s, -1), [pages_state, selected], [pages_state, gallery, selected])
-    down_btn.click(lambda p, s: on_move(p, s, 1), [pages_state, selected], [pages_state, gallery, selected])
+    up_btn.click(
+        lambda p, s: on_move(p, s, -1),
+        [pages_state, selected],
+        [pages_state, gallery, selected],
+    )
+    down_btn.click(
+        lambda p, s: on_move(p, s, 1),
+        [pages_state, selected],
+        [pages_state, gallery, selected],
+    )
     add_btn.click(
         on_add_frame,
         [pages_state, video_path, t_slider, sx, sy, sw, sh, clean, trim],

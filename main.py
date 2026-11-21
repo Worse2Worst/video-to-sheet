@@ -267,27 +267,47 @@ def build_pdf(crops, out_path, dpi=150, margin_mm=10, gap_mm=6):
 def download_youtube(url, progress):
     progress(0, desc="Downloading from YouTube...")
     out_dir = tempfile.mkdtemp(prefix="sheet_dl_")
+    cookies_path = os.environ.get("YTDLP_COOKIES_FILE", "/etc/secrets/cookies.txt")
+    if not os.path.isfile(cookies_path) and os.path.isfile("cookies.txt"):
+        cookies_path = "cookies.txt"
+
     cmd = [
         sys.executable, "-m", "yt_dlp",
         "-f", "bv*[height<=1080]+ba/b",
         "--merge-output-format", "mp4",
         "--no-playlist",
+        "--no-warnings",
+    ]
+    if cookies_path and os.path.isfile(cookies_path):
+        cmd.extend(["--cookies", cookies_path])
+    cmd.extend([
         "-o", os.path.join(out_dir, "%(id)s.%(ext)s"),
         url,
-    ]
+    ])
+
     try:
-        res = subprocess.run(cmd, capture_output=True, text=True)
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+    except subprocess.TimeoutExpired:
+        raise gr.Error("YouTube download timed out after 120 seconds.")
     except FileNotFoundError:
         raise gr.Error("yt-dlp is not installed. Run: pip install yt-dlp")
+
     if res.returncode != 0:
-        tail = (res.stderr or res.stdout)[-400:]
+        combined = (res.stderr or "") + "\n" + (res.stdout or "")
+        tail = combined.strip()[-400:]
         if "No module named yt_dlp" in tail:
             raise gr.Error("yt-dlp is not installed. Run: pip install yt-dlp")
         raise gr.Error(f"Download failed: {tail}")
-    files = [f for f in os.listdir(out_dir) if not f.endswith((".part", ".ytdl"))]
+
+    video_exts = (".mp4", ".mkv", ".webm", ".mov")
+    files = [
+        os.path.join(out_dir, f)
+        for f in os.listdir(out_dir)
+        if not f.endswith((".part", ".ytdl", ".temp")) and f.lower().endswith(video_exts)
+    ]
     if not files:
         raise gr.Error("Download finished but no file was found.")
-    return os.path.join(out_dir, files[0])
+    return max(files, key=os.path.getsize)
 
 
 def draw_roi_preview(path, t, x, y, w, h):

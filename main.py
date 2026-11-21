@@ -20,6 +20,11 @@ import gradio as gr
 import numpy as np
 from PIL import Image
 
+# On a public host (Render sets RENDER=true; or set HOSTED=1 yourself) the YouTube
+# and local-file-path inputs are disabled: YouTube blocks datacenter IPs, and a
+# path box would let visitors read files from the server.
+IS_HOSTED = bool(os.environ.get("RENDER") or os.environ.get("HOSTED"))
+
 # =====================================================================
 # Core pipeline (same logic as video_to_sheet_pdf.py)
 # =====================================================================
@@ -314,7 +319,7 @@ def render_gallery(pages, sel=None):
 
 def on_load(upload, source, progress=gr.Progress()):
     path = None
-    source = (source or "").strip().strip('"')
+    source = "" if IS_HOSTED else (source or "").strip().strip('"')
     if source:
         if source.lower().startswith(("http://", "https://")):
             path = download_youtube(source, progress)
@@ -486,6 +491,13 @@ with gr.Blocks(title="Sheet Music Extractor", theme=gr.themes.Soft()) as demo:
             source = gr.Textbox(
                 label="...or paste a YouTube URL / local file path",
                 placeholder="https://www.youtube.com/watch?v=...   or   C:\\videos\\song.mp4",
+                visible=not IS_HOSTED,
+            )
+        if IS_HOSTED:
+            gr.Markdown(
+                "YouTube links can't be fetched from this server (YouTube blocks it). "
+                "Download the video on your own computer first, then upload it here. "
+                "The YouTube link option works when you run the app locally."
             )
         load_btn = gr.Button("Load video", variant="primary")
         status = gr.Markdown()
@@ -592,9 +604,9 @@ with gr.Blocks(title="Sheet Music Extractor", theme=gr.themes.Soft()) as demo:
 
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 7860))
-    demo.launch(
-        server_name="0.0.0.0",
-        server_port=port,
-        theme=gr.themes.Soft(),
-    )
+    if IS_HOSTED:
+        demo.queue(max_size=5).launch(
+            server_name="0.0.0.0", server_port=int(os.environ.get("PORT", 7860))
+        )
+    else:
+        demo.launch(inbrowser=True)
